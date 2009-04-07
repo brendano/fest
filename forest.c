@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-void initForest(forest_t* f, int committee, int maxdepth, float param, int trees, float wneg, int oob){
+void initForest(forest_t* f, int committee, int maxdepth, float param, int trees, float wneg, int oob, FILE* oobfile){
     f->committee = committee;
     f->maxdepth = maxdepth;
     f->factor = param;
@@ -19,6 +19,7 @@ void initForest(forest_t* f, int committee, int maxdepth, float param, int trees
     f->ngrown = 0;
     f->wneg = wneg;
     f->oob = oob;
+    f->oobfile = oobfile;
 }
 
 void freeForest(forest_t* f){
@@ -40,6 +41,18 @@ void tabulateOOBVotes(tree_t* tree, dataset_t* d) {
                 d->oobvotes[i]-=1;
         }
     }
+}
+
+void outputOOBVotes(tree_t* tree, dataset_t* d, FILE* oobfile) {
+    // assume tree has already done predictions via classifyOOBData()
+    int i;
+    for(i=0; i< d->nex; i++) {
+        if(d->weight[i] != 0)         fprintf(oobfile, "0");
+        else if(tree->pred[i] > 0.5)  fprintf(oobfile, "1");
+        else                          fprintf(oobfile, "-1");
+        if(i < d->nex - 1) fprintf(oobfile, " ");
+    }
+    fprintf(oobfile, "\n");
 }
 
 void reportOOBError(dataset_t* d, int iter) {
@@ -134,6 +147,7 @@ void growForest(forest_t* f, dataset_t* d){
                 }
                 tabulateOOBVotes(&tree, d);
                 reportOOBError(d, t);
+                if (f->oobfile) outputOOBVotes(&tree, d, f->oobfile);
             }
         }
         f->tree[t] = tree.root;
