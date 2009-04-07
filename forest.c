@@ -70,15 +70,18 @@ float computeOOBAUC(dataset_t* d, int treesSoFar) {
     }
 
     int votethresh, v, tp,fp,tn,fn;
-    // store sens/spec for all possible votes, plus extra on right (always say no)
+
+    // analyzing every dec rule: say yes at >= votethresh
+    // store sens/spec for these, plus extra on right (the rule: always say no)
     float *sens = calloc((1+rowsize),sizeof(float));
     float *spec = calloc((1+rowsize),sizeof(float));
     sens[ctr+treesSoFar+1] = 0;
     spec[ctr+treesSoFar+1] = 1;
 
     // could be cleverer and compute these in only 1 pass
+    // Testing: compare debug output to ROCR run on -v oobfile output.
+    // ROCR = rocr.bioinf.mpi-sb.mpg.de
     for (votethresh = -treesSoFar; votethresh <= treesSoFar; votethresh++) {
-        // analyzing the dec rule: say yes at >= votethresh
         tp=fp=tn=fn=0;
         for (v = -treesSoFar; v < votethresh; v++) {
             tn += labelCounts[0*rowsize + ctr+v];
@@ -88,12 +91,12 @@ float computeOOBAUC(dataset_t* d, int treesSoFar) {
             tp += labelCounts[1*rowsize + ctr+v];
             fp += labelCounts[0*rowsize + ctr+v];
         }
-        // Testing: compare these to ROCR prediction(pred,labels) object.
+        // Testing: compare ROCR prediction(pred,labels)
         // printf("%d %d %d %d\n", tp,tn,fp,fn);
         sens[ctr+votethresh] = tp*1.0 / (tp+fn);
         spec[ctr+votethresh] = tn*1.0 / (tn+fp);
     }
-    // Testing: compare these to ROCR performance(prediction(pred,labels),'auc')
+    // Testing: compare ROCR performance(prediction(pred,labels),'sens')
     // for (v=-treesSoFar; v <= treesSoFar+1; v++)   printf("%.3f ", sens[ctr+v]);
     // printf("\n");
     // for (v=-treesSoFar; v <= treesSoFar+1; v++)   printf("%.3f ", spec[ctr+v]);
@@ -107,6 +110,10 @@ float computeOOBAUC(dataset_t* d, int treesSoFar) {
         auc += (spec[i1] - spec[i]) * (sens[i] + sens[i1]) / 2;
     }
     
+    free(sens);
+    free(spec);
+    free(labelCounts);
+
     return auc;
 }
 
