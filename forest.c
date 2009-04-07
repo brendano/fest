@@ -55,6 +55,61 @@ void outputOOBVotes(tree_t* tree, dataset_t* d, FILE* oobfile) {
     fprintf(oobfile, "\n");
 }
 
+float computeOOBAUC(dataset_t* d, int treesSoFar) {
+    int i, i1, offset;
+    // each possible vote value gets a count of label types for it.
+    // after 3 iterations, possible votes are -3 .. 0 .. 3
+    // labelCounts is [label][vote] .. so 2x7 in this case.
+    int rowsize = (1 + 2*treesSoFar);
+    int ctr = treesSoFar;
+    int* labelCounts = calloc( 2 * rowsize, sizeof(int) );
+
+    for (i=0; i < d->nex; i++) {
+        offset = d->target[i]*rowsize + (ctr + d->oobvotes[i]);
+        labelCounts[offset]++;
+    }
+
+    int votethresh, v, tp,fp,tn,fn;
+    // store sens/spec for all possible votes, plus extra on right (always say no)
+    float *sens = calloc((1+rowsize),sizeof(float));
+    float *spec = calloc((1+rowsize),sizeof(float));
+    sens[ctr+treesSoFar+1] = 0;
+    spec[ctr+treesSoFar+1] = 1;
+
+    // could be cleverer and compute these in only 1 pass
+    for (votethresh = -treesSoFar; votethresh <= treesSoFar; votethresh++) {
+        // analyzing the dec rule: say yes at >= votethresh
+        tp=fp=tn=fn=0;
+        for (v = -treesSoFar; v < votethresh; v++) {
+            tn += labelCounts[0*rowsize + ctr+v];
+            fn += labelCounts[1*rowsize + ctr+v];
+        }
+        for (v = votethresh; v <= treesSoFar; v++) {
+            tp += labelCounts[1*rowsize + ctr+v];
+            fp += labelCounts[0*rowsize + ctr+v];
+        }
+        // Testing: compare these to ROCR prediction(pred,labels) object.
+        // printf("%d %d %d %d\n", tp,tn,fp,fn);
+        sens[ctr+votethresh] = tp*1.0 / (tp+fn);
+        spec[ctr+votethresh] = tn*1.0 / (tn+fp);
+    }
+    // Testing: compare these to ROCR performance(prediction(pred,labels),'auc')
+    // for (v=-treesSoFar; v <= treesSoFar+1; v++)   printf("%.3f ", sens[ctr+v]);
+    // printf("\n");
+    // for (v=-treesSoFar; v <= treesSoFar+1; v++)   printf("%.3f ", spec[ctr+v]);
+    // printf("\n");
+
+    // AUC is sum of trapezoids.  below has sens on y-axis, spec on x-axis.
+    float auc=0;
+    for (v = -treesSoFar; v <= treesSoFar; v++) {
+        i = ctr+v;
+        i1 = ctr+v+1;
+        auc += (spec[i1] - spec[i]) * (sens[i] + sens[i1]) / 2;
+    }
+    
+    return auc;
+}
+
 void reportOOBError(dataset_t* d, int iter) {
     float tp,fp,tn,fn;
     int confusion[2][2]={{0,0},{0,0}};
@@ -73,12 +128,14 @@ void reportOOBError(dataset_t* d, int iter) {
     float acc = (tp+tn) / (tp+tn+fp+fn);
     float sens = tp / (tp+fn);  // acc on pos examples = recall
     float spec = tn / (tn+fp);  // acc on neg examples
-    printf("%5d  %5.2f%%  %5.2f%%  %5.2f%%\n", iter+1, 100*(1-acc), 100*(1-spec), 100*(1-sens));
+    float auc = computeOOBAUC(d, iter+1);
+    printf("%5d  %5.2f%%  %5.2f%%  %5.2f%%   %5.2f%%\n", iter+1, 
+            100*(1-acc), 100*(1-spec), 100*(1-sens), 100*auc);
 }
 
 void reportOOBHeader() {
     printf("Error rate (1-acc), on neg examples (1-spec), and on pos examples (1-sens)\n");
-    printf("%5s  %6s  %6s  %6s\n","tree","err","negerr","poserr");
+    printf("%5s  %6s  %6s  %6s   %6s\n","tree","err","negerr","poserr","auc");
 }
 
 void growForest(forest_t* f, dataset_t* d){
